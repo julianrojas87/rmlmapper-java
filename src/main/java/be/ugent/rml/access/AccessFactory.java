@@ -23,7 +23,7 @@ public class AccessFactory {
 
     // The path used when local paths are not absolute.
     private String basePath;
-    private static final Logger logger = LoggerFactory.getLogger(AccessFactory.class);
+    final Logger logger = LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
 
     /**
      * The constructor of the AccessFactory.
@@ -108,35 +108,61 @@ public class AccessFactory {
                         break;
                     case NAMESPACES.TD + "PropertyAffordance":
                         HashMap<String, String> headers = new HashMap<String, String>();
+                        HashMap<String, HashMap<String, String>> auth = new HashMap<>();
+                        auth.put("data", new HashMap<String, String>());
+                        auth.put("info", new HashMap<String, String>());
 
                         List<Term> form = Utils.getObjectsFromQuads(rmlStore.getQuads(source, new NamedNode(NAMESPACES.TD + "hasForm"), null));
                         List<Term> targets = Utils.getObjectsFromQuads(rmlStore.getQuads(form.get(0), new NamedNode(NAMESPACES.HCTL + "hasTarget"), null));
                         List<Term> contentTypes = Utils.getObjectsFromQuads(rmlStore.getQuads(form.get(0), new NamedNode(NAMESPACES.HCTL + "forContentType"), null));
                         List<Term> headerList = Utils.getObjectsFromQuads(rmlStore.getQuads(form.get(0), new NamedNode(NAMESPACES.HTV + "headers"), null));
-
                         // Security schema & data
                         try {
                             Term thing = Utils.getSubjectsFromQuads(rmlStore.getQuads(null, new NamedNode(NAMESPACES.TD + "hasPropertyAffordance"), source)).get(0);
                             List<Term> securityConfiguration = Utils.getObjectsFromQuads(rmlStore.getQuads(thing, new NamedNode(NAMESPACES.TD + "hasSecurityConfiguration"), null));
-                            logger.debug("Security config: " + securityConfiguration.toString());
+                            logger.debug("Security config: {}", securityConfiguration.toString());
+
                             for (Term sc : securityConfiguration) {
-                                // TODO: support more security configurations
+                                boolean isOAuth = Utils.getObjectsFromQuads(rmlStore.getQuads(sc, new NamedNode(NAMESPACES.RDF + "type"),
+                                        new NamedNode(NAMESPACES.WOTSEC + "OAuth2SecurityScheme"))).size() != 0;
+                                boolean isBearer = Utils.getObjectsFromQuads(rmlStore.getQuads(sc, new NamedNode(NAMESPACES.RDF + "type"),
+                                        new NamedNode(NAMESPACES.WOTSEC + "BearerSecurityScheme"))).size() != 0;
                                 List<Term> securityIn = Utils.getObjectsFromQuads(rmlStore.getQuads(sc, new NamedNode(NAMESPACES.WOTSEC + "in"), null));
                                 List<Term> securityName = Utils.getObjectsFromQuads(rmlStore.getQuads(sc, new NamedNode(NAMESPACES.WOTSEC + "name"), null));
                                 List<Term> securityValue = Utils.getObjectsFromQuads(rmlStore.getQuads(sc, new NamedNode(NAMESPACES.IDSA + "tokenValue"), null));
-                                // BearerSecurityScheme
-                                List<Term> securityScheme = Utils.getObjectsFromQuads(rmlStore.getQuads(sc, new NamedNode(NAMESPACES.RDF + "type"), new NamedNode(NAMESPACES.WOTSEC + "BearerSecurityScheme")));
-                                if (securityScheme.size() != 0) {
+                                if (isOAuth || isBearer) {
+                                    // BearerSecurityScheme
+                                    // OAuth2 specific
+                                    if (isOAuth) {
+                                        logger.debug("OAuth2 is used");
+                                        Term securityAuth = Utils.getObjectsFromQuads(rmlStore.getQuads(sc, new NamedNode(NAMESPACES.WOTSEC + "authorization"), null)).get(0);
+                                        auth.get("info").put("authorization", securityAuth.getValue());
+                                        auth.get("info").put("name", securityName.get(0).getValue());
+
+                                        Term securityRefresh = Utils.getObjectsFromQuads(rmlStore.getQuads(sc, new NamedNode(NAMESPACES.IDSA + "refreshValue"), null)).get(0);
+                                        Term securityClientID = Utils.getObjectsFromQuads(rmlStore.getQuads(sc, new NamedNode(NAMESPACES.IDSA + "clientID"), null)).get(0);
+                                        Term securityClientSecret = Utils.getObjectsFromQuads(rmlStore.getQuads(sc, new NamedNode(NAMESPACES.IDSA + "clientSecret"), null)).get(0);
+//                                        Term securityGrantType = Utils.getObjectsFromQuads(rmlStore.getQuads(sc, new NamedNode(NAMESPACES.WOTSEC + "grant_type"), null)).get(0);
+
+                                        auth.get("data").put("refresh", securityRefresh.getValue());
+                                        auth.get("data").put("client_id", securityClientID.getValue());
+                                        auth.get("data").put("client_secret", securityClientSecret.getValue());
+                                        logger.debug("Refresh token: {}", securityRefresh.getValue());
+                                        logger.debug("Client ID: {}", securityClientID.getValue());
+                                        logger.debug("Client Secret: {}", securityClientSecret.getValue());
+////                                      //can this not be set default?
+//                                        auth.get("data").put("grant_type", securityGrantType.getValue());
+                                    }
+                                    // both oath and bearer
                                     Term bearerToken = new Literal("Bearer " + securityValue.get(0).getValue());
                                     securityValue.set(0, bearerToken);
                                 }
-
                                 try {
                                     switch (securityIn.get(0).getValue()) {
                                         case "header": {
-                                            logger.info("Applying security configuration of " + sc.getValue() + "in header");
-                                            logger.debug("Name: " + securityName.get(0).getValue());
-                                            logger.debug("Value: " + securityValue.get(0).getValue());
+                                            logger.info("Applying security configuration of {} in header", sc.getValue());
+                                            logger.debug("Name: {}", securityName.get(0).getValue());
+                                            logger.debug("Value: {}", securityValue.get(0).getValue());
                                             headers.put(securityName.get(0).getValue(), securityValue.get(0).getValue());
                                             break;
                                         }
@@ -147,9 +173,10 @@ public class AccessFactory {
                                             throw new NotImplementedException();
                                     }
                                 } catch (IndexOutOfBoundsException e) {
-                                    logger.warn("Unable to apply security configuration for " + sc.getValue());
+                                    logger.warn("Unable to apply security configuration for {}", sc.getValue());
                                 }
                             }
+
                         }
                         catch (IndexOutOfBoundsException e) {
                             logger.warn("No td:Thing description, unable to determine security configurations, assuming no security policies apply");
@@ -170,15 +197,15 @@ public class AccessFactory {
                                 for(Term h: header) {
                                     String headerName = Utils.getObjectsFromQuads(rmlStore.getQuads(h, new NamedNode(NAMESPACES.HTV + "fieldName"), null)).get(0).getValue();
                                     String headerValue = Utils.getObjectsFromQuads(rmlStore.getQuads(h, new NamedNode(NAMESPACES.HTV + "fieldValue"), null)).get(0).getValue();
-                                    logger.debug("Retrieved HTTP header: '" + headerName + "','" + headerValue + "'");
+                                    logger.debug("Retrieved HTTP header: '{}','{}'", headerName, headerValue);
                                     headers.put(headerName, headerValue);
                                 }
                             }
                             catch(IndexOutOfBoundsException e) {
-                                logger.warn("Unable to retrieve header name and value for " + headerListItem.getValue());
+                                logger.warn("Unable to retrieve header name and value for {}", headerListItem.getValue());
                             }
                         };
-                        access = new WoTAccess(target, contentType, headers);
+                        access = new WoTAccess(target, contentType, headers, auth);
                         break;
                     default:
                         throw new NotImplementedException();
@@ -222,7 +249,6 @@ public class AccessFactory {
         }
 
         String dsn = dsnObject.get(0).getValue();
-        dsn = dsn.substring(dsn.indexOf("//") + 2);
 
         // - SQL query
         String query;
@@ -262,13 +288,14 @@ public class AccessFactory {
         // - ContentType
         List<Term> contentType = Utils.getObjectsFromQuads(rmlStore.getQuads(logicalSource, new NamedNode(NAMESPACES.RML + "referenceFormulation"), null));
 
-        return new RDBAccess(dsn, database, username, password, query, (contentType.isEmpty()? "text/csv" : contentType.get(0).getValue()));
+
+        return new RDBAccess(dsn, database, username, password, query, (contentType.isEmpty() ? "text/csv" : contentType.get(0).getValue()));
     }
 
     /**
      * This method returns a SPARQLResultFormat based on the result formats and reference formulations.
      * @param resultFormats the result formats used to determine the SPARQLResultFormat.
-     * @param referenceFormulations the reference formulations used to to determine the SPARQLResultFormat.
+     * @param referenceFormulations the reference formulations used to determine the SPARQLResultFormat.
      * @return a SPARQLResultFormat.
      */
     private SPARQLResultFormat getSPARQLResultFormat(List<Term> resultFormats, List<Term> referenceFormulations) {

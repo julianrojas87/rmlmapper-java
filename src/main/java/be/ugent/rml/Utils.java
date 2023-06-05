@@ -8,8 +8,6 @@ import be.ugent.rml.store.QuadStore;
 import be.ugent.rml.term.Literal;
 import be.ugent.rml.term.NamedNode;
 import be.ugent.rml.term.Term;
-import com.google.common.escape.Escaper;
-import com.google.common.net.UrlEscapers;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.io.IOUtils;
 import org.eclipse.rdf4j.common.net.ParsedIRI;
@@ -67,10 +65,6 @@ public class Utils {
         }
     }
 
-    public static InputStream getInputStreamFromLocation(String location) throws IOException {
-        return getInputStreamFromLocation(location, null, "");
-    }
-
     public static InputStream getInputStreamFromLocation(String location, File basePath, String contentType) throws IOException {
         return getInputStreamFromLocation(location, basePath, contentType, new HashMap<String, String>());
     }
@@ -85,6 +79,7 @@ public class Utils {
 
     /**
      * Get an InputStream from a string. This string is either a path (local or remote) to an RDF file, or a raw RDF text.
+     * If it's a path,  conversion from Windows path separators to UNIX paht separators is performed
      * @param mOptionValue input, either RDF file path or raw RDF text
      * @return input stream
      */
@@ -92,6 +87,10 @@ public class Utils {
         InputStream out;
         logger.debug("{} mapping file", mOptionValue);
         String extension = FilenameUtils.getExtension(mOptionValue);
+        if (extension != null) {
+            // Windows paths 🤷‍♂️
+            mOptionValue = mOptionValue.replaceAll("\\\\", "/");
+        }
         try {
             switch (extension) {
                 case "n3":
@@ -121,29 +120,28 @@ public class Utils {
             }
         } catch (IOException e) {
             logger.info("Trying to read mapping as raw input string.");
-            try {
-                // raw mapping input string
-                out = IOUtils.toInputStream(mOptionValue, "UTF-8");
-            } catch (IOException e2) {
-                logger.error("Cannot read mapping option {}", mOptionValue);
-                out = new ByteArrayInputStream(new byte[0]);
-            }
+            out = IOUtils.toInputStream(mOptionValue, StandardCharsets.UTF_8);
         }
         return out;
     }
 
     private static InputStream getTurtleInputStreamForFormat(String mOptionValue, RDFFormat format) throws IOException {
-        InputStream out = getInputStreamFromLocation(mOptionValue, null, format.getDefaultMIMEType());
-        Model model = Rio.parse(out, "", format);
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        Rio.write(model, output, RDFFormat.TURTLE);
-        return new ByteArrayInputStream(output.toByteArray());
+        try (InputStream out = getInputStreamFromLocation(mOptionValue, null, format.getDefaultMIMEType())) {
+            Model model = Rio.parse(out, "", format);
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            Rio.write(model, output, RDFFormat.TURTLE);
+            return new ByteArrayInputStream(output.toByteArray());
+        }
     }
 
     public static File getFile(String path) throws IOException {
         return Utils.getFile(path, null);
     }
 
+    /**
+     * Get path based on basePath or (if not filled in) the user.dir
+     * This file assumes UNIX path separators.
+     */
     public static File getFile(String path, File basePath) throws IOException {
         // Absolute path?
         File f = new File(path);
@@ -163,7 +161,7 @@ public class Utils {
             }
         }
 
-        logger.debug("Looking for file " + path + " in basePath " + basePath);
+        logger.debug("Looking for file {} in basePath {}", path, basePath);
 
         // Relative from user dir?
         f = new File(basePath, path);
@@ -171,8 +169,8 @@ public class Utils {
             return f;
         }
 
-        logger.debug("File " + path + " not found in " + basePath);
-        logger.debug("Looking for file " + path + " in " + basePath + "/../");
+        logger.debug("File {} not found in {}", path, basePath);
+        logger.debug("Looking for file {} in {} /../", path, basePath);
 
 
         // Relative from parent of user dir?
@@ -181,8 +179,9 @@ public class Utils {
             return f;
         }
 
-        logger.debug("File " + path + " not found in " + basePath);
-        logger.debug("Looking for file " + path + " in the resources directory");
+        logger.debug("File {} not found in {}", path, basePath);
+
+        logger.debug("Looking for file {} in the resources directory", path);
 
         // Resource path?
         try {
@@ -191,7 +190,7 @@ public class Utils {
             // Too bad
         }
 
-        logger.debug("File " + path + " not found in the resources directory");
+        logger.debug("File {} not found in the resources directory", path);
 
         throw new FileNotFoundException(path);
     }
@@ -243,11 +242,43 @@ public class Utils {
             }
             // Apply all headers
             headers.forEach((name, value) -> {
-                logger.debug(name + ": " + value);
+                logger.debug("{}: {}", name, value);
                 connection.setRequestProperty(name, value);
             });
+            logger.debug("trying to connect");
             connection.connect();
+            logger.debug("getting inputstream");
             inputStream = connection.getInputStream();
+            logger.debug("got inputstream");
+        } catch (IOException ex) {
+            ex.printStackTrace();
+        }
+        return inputStream;
+    }
+
+    public static InputStream getInputStreamFromAuthURL(URL url, String contentType, HashMap<String, String> headers) throws Exception {
+        InputStream inputStream = null;
+        try {
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setDoOutput(true);
+            connection.setInstanceFollowRedirects(true);
+            connection.setRequestMethod("GET");
+            connection.setRequestProperty("Accept", contentType);
+            // Set encoding if not set before
+            if(!headers.containsKey("charset")) {
+                headers.put("charset", "utf-8");
+            }
+            // Apply all headers
+            headers.forEach((name, value) -> {
+                logger.debug("{}: {}", name, value);
+                connection.setRequestProperty(name, value);
+            });
+            logger.debug("trying to connect");
+            connection.connect();
+            if(connection.getResponseCode() == 401) throw new Exception("not authenticated");
+            logger.debug("getting inputstream");
+            inputStream = connection.getInputStream();
+            logger.debug("got inputstream");
         } catch (IOException ex) {
             ex.printStackTrace();
         }
@@ -256,6 +287,27 @@ public class Utils {
 
     public static InputStream getInputStreamFromFile(File file) throws FileNotFoundException {
         return new FileInputStream(file);
+    }
+
+    public static InputStream getPostRequestResponse(URL url, String contentType, byte[] auth ){
+        InputStream inputStream = null;
+        HashMap<String, String> headers = new HashMap<>();
+        headers.put("charset", "utf-8");
+
+        try {
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setDoOutput(true);
+            connection.setInstanceFollowRedirects(true);
+            connection.setRequestMethod("POST");
+            connection.setRequestProperty("Accept", contentType);
+            connection.connect();
+            OutputStream outputStream = connection.getOutputStream();
+            outputStream.write(auth);
+            inputStream = connection.getInputStream();
+        } catch (IOException ex) {
+            ex.printStackTrace();
+        }
+        return inputStream;
     }
 
     public static boolean isRemoteFile(String location) {
@@ -326,29 +378,9 @@ public class Utils {
     }
 
     public static String encodeURI(String url) {
-        Escaper escaper = UrlEscapers.urlFragmentEscaper();
-        String result = escaper.escape(url);
-
-        result = result.replaceAll("!", "%21");
-        result = result.replaceAll("#", "%23");
-        result = result.replaceAll("\\$", "%24");
-        result = result.replaceAll("&", "%26");
-        result = result.replaceAll("'", "%27");
-        result = result.replaceAll("\\(", "%28");
-        result = result.replaceAll("\\)", "%29");
-        result = result.replaceAll("\\*", "%2A");
-        result = result.replaceAll("\\+", "%2B");
-        result = result.replaceAll(",", "%2C");
-        result = result.replaceAll("/", "%2F");
-        result = result.replaceAll(":", "%3A");
-        result = result.replaceAll(";", "%3B");
-        result = result.replaceAll("=", "%3D");
-        result = result.replaceAll("\\?", "%3F");
-        result = result.replaceAll("@", "%40");
-        result = result.replaceAll("\\[", "%5B");
-        result = result.replaceAll("]", "%5D");
-
-        return result;
+        return URLEncoder.encode(url, StandardCharsets.UTF_8)
+                .replaceAll("\\+", "%20")
+                .replaceAll("\\*", "%2A");
     }
 
     public static String fileToString(File file) throws IOException {
@@ -549,6 +581,29 @@ public class Utils {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    public static boolean checkPathParent(String path, String base) {
+        File f;
+        File basePath;
+        if (base == null) {
+            f = new File(path);
+            if (f.isAbsolute()) {
+                return f.getParentFile().exists();
+            }
+            base = System.getProperty("user.dir");
+        }
+        try {
+            basePath = new File(base);
+        } catch (Exception e) {
+            return false;
+        }
+
+        logger.info("Looking for parent of file {} in basePath {}", path, basePath);
+
+        // Relative from user dir?
+        f = new File(basePath, path);
+        return f.getParentFile().exists();
     }
 
     public static String getBaseDirectiveTurtle(File file) {

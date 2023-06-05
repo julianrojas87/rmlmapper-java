@@ -8,7 +8,6 @@ import net.sf.saxon.s9api.XdmNode;
 import net.sf.saxon.s9api.XdmValue;
 
 import javax.xml.transform.stream.StreamSource;
-
 import be.ugent.rml.records.xpath.SaxNamespaceResolver;
 
 import java.io.IOException;

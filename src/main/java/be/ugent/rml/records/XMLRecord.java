@@ -32,7 +32,7 @@ public class XMLRecord extends Record {
     @Override
     public List<Object> get(String value) {
         List<Object> results = new ArrayList<>();
-
+        
         try {
             XdmValue result = compiler.evaluate(value, item);
             result.forEach((node) -> {

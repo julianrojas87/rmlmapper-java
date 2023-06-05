@@ -2,7 +2,7 @@
 
 [![Maven Central](https://img.shields.io/maven-central/v/be.ugent.rml/rmlmapper.svg?label=Maven%20Central)](https://search.maven.org/search?q=g:%22be.ugent.rml%22%20AND%20a:%22rmlmapper%22)
 
-The RMLMapper execute RML rules to generate Linked Data.
+The RMLMapper executes RML rules to generate Linked Data.
 It is a Java library, which is available via the command line ([API docs online](https://javadoc.io/doc/be.ugent.rml/rmlmapper)).
 The RMLMapper loads all data in memory, so be aware when working with big datasets.
 
@@ -78,7 +78,7 @@ This is the recommended way to get started with RMLMapper.
 Do you want to build from source yourself? Check [Build](#build).
 
 ## Build
-The RMLMapper is build using Maven.
+The RMLMapper is built using Maven.
 As it is also tested against Oracle (check [here](#accessing-oracle-database) for details),
 it needs a specific set-up to run all tests.
 That's why we recommend to build without testing: `mvn install -DskipTests=true`.
@@ -155,26 +155,6 @@ which contain the necessary credentials to access the Web API.
 An example can be found in the test cases 
 [src/test/resources/web-of-things](src/test/resources/web-of-things).
 
-#### Accessing Oracle Database
-
-You need to add the Oracle JDBC driver manually to the class path
-if you want to access an Oracle Database.
-The required driver is `ojdbc8`.
-
-- Download `ojdbc8.jar` from [Oracle](https://www.oracle.com/database/technologies/jdbc-ucp-122-downloads.html).
-- Execute the RMLMapper via 
-
-```
-java -cp 'rmlmapper.jar:ojdbc8-12.2.0.1.jar' be.ugent.rml.cli.Main -m rules.rml.ttl
-```
-
-The options do the following:
-
-- `-cp 'rmlmapper.jar:ojdbc8-12.2.0.1.jar'`: Put the jar of the RMLMapper and JDBC driver in the classpath.
-- `be.ugent.rml.cli.Main`: `be.ugent.rml.cli.Main` is the entry point of the RMLMapper.
-- `-m rules.rml.ttl`: Use the RML rules in the file `rules.rml`.ttl.
-The exact same options as the ones mentioned earlier are supported.
-
 ### Library
 
 An example of how you can use the RMLMapper as an external library can be found
@@ -199,9 +179,10 @@ The RMLMapper is executed in the `/data` folder in the Docker container.
 
 ### Including functions
 
-There are two ways to include (new) functions within the RML Mapper
+There are three ways to include (new) functions within the RML Mapper
   * dynamic loading: you add links to java files or jar files, and those files are loaded dynamically at runtime
   * preloading: you register functionality via code, and you need to rebuild the mapper to use that functionality
+  * add as dependency
 
 Registration of functions is done using a Turtle file, which you can find in `src/main/resources/functions.ttl`
 
@@ -230,7 +211,7 @@ grelm:javaString
     fnoi:class-name    "io.fno.grel.StringFunctions" .
 
 grelm:uppercaseMapping
-    a                    fnoi:Mapping ;
+    a                    fno:Mapping ;
     fno:function         grel:toUpperCase ;
     fno:implementation   grelm:javaString ;
     fno:methodMapping    [ a                fnom:StringMethodMapping ;
@@ -253,6 +234,14 @@ This overrides the dynamic loading.
 An example of how you can use Preload a custom function can be found
 at [./src/test/java/be/ugent/rml/readme/ReadmeFunctionTest.java](https://github.com/RMLio/rmlmapper-java/blob/master/src/test/java/be/ugent/rml/readme/ReadmeFunctionTest.java)
 
+#### Adding as dependency
+
+This is most interesting if you use RMLMapper as a library in your own project.
+Just add the dependency to the function library you want to use in your project.
+
+You can also add a function library as a Maven dependency in `pom.xml` of RMLMapper.
+You'll have to rebuild RMLMapper to use it.
+
 ### Generating metadata
 
 Conform to how it is described in the scientific paper [1],
@@ -269,13 +258,18 @@ and up to which level metadata should be stored (dataset, triple, or term level 
 
 ## Testing
 
-Run the tests via `test.sh`.
+### Command line
+Run the tests via `test.sh`. 
+
+### IntelliJ
+Right-click `src/test/java` directory and select "Run 'All tests'". 
 
 #### Derived tests
 Some tests (Excel, ODS) are derived from other tests (CSV) using a script (`./generate_spreadsheet_test_cases.sh`)
 
 ### RDBs
-Make sure you have [Docker](https://www.docker.com) running.
+Make sure you have [Docker](https://www.docker.com) running. On Unix, others read-write permission (006) is required on `/var/run/docker.sock` in order to run the tests.
+The tests will fail otherwise, as Testcontainers can't spin up the container. 
 
 #### Problems
 * A problem with Docker (can't start the container) causes the SQLServer tests to fail locally. These tests will always succeed locally.
@@ -283,30 +277,46 @@ Make sure you have [Docker](https://www.docker.com) running.
 
 ## Dependencies
 
-| Dependency                              | License                                                            |
-|:---------------------------------------:|--------------------------------------------------------------------|
-| ch.qos.logback logback-classic          | Eclipse Public License 1.0 & GNU Lesser General Public License 2.1 |
-| commons-cli commons-lang                | Apache License 2.0                                                 |
-| com.opencsv opencsv                     | Apache License 2.0                                                 |
-| commons-cli commons-cli                 | Apache License 2.0                                                 |
-| org.eclipse.rdf4j rdf4j-runtime         | Eclipse Public License 1.0                                         |
-| junit junit                             | Eclipse Public License 1.0                                         |
-| com.jayway.jsonpath json-path           | Apache License 2.0                                                 |
-| javax.xml.parsers jaxp-api              | Apache License 2.0                                                 |
-| org.jsoup                               | MIT                                                                |
-| mysql mysql-connector-java              | GNU General Public License v2.0                                    |
-| ch.vorbuger.mariaDB4j mariaDB4j         | Apache License 2.0                                                 |
-| postgresql postgresql                   | BSD                                                                |
-| com.microsoft.sqlserver mssql-jdbc      | MIT                                                                |
-| com.spotify docker-client               | Apache License 2.0                                                 |
-| com.fasterxml.jackson.core jackson-core | Apache License 2.0                                                 |
-| org.eclipse.jetty jetty-server          | Eclipse Public License 1.0 & Apache License 2.0                    |
-| org.eclipse.jetty jetty-security        | Eclipse Public License 1.0 & Apache License 2.0                    |
-| org.apache.jena apache-jena-libs        | Apache License 2.0                                                 |
-| org.apache.jena jena-fuseki-embedded    | Apache License 2.0                                                 |
-| com.github.bjdmeest hdt-java            | GNU Lesser General Public License v3.0                             |
-| commons-validator commons-validator     | Apache License 2.0                                                 |
-| com.github.fnoio grel-functions-java    | MIT                                                                |
+|                   Dependency                   | License                                                            |
+|:----------------------------------------------:|--------------------------------------------------------------------|
+|         ch.qos.logback logback-classic         | Eclipse Public License 1.0 & GNU Lesser General Public License 2.1 |
+| com.fasterxml.jackson.core jackson-annotations | Apache License 2.0                                                 |
+|    com.fasterxml.jackson.core jackson-core     | Apache License 2.0                                                 |
+|  com.fasterxml.jackson.core jackson-databind   | Apache License 2.0                                                 |
+|      com.github.fnoio function-agent-java      | MIT                                                                |
+|      com.github.fnoio grel-functions-java      | MIT                                                                |
+|     com.github.fnoio idlab-functions-java      | MIT                                                                |
+|           com.github.rdfhdt hdt-java           | GNU Lesser General Public License v3.0                             |
+|   com.github.stephenc.jcip:jcip-annotations    | Apache License 2.0                                                 |
+|      com.github.tomakehurst:wiremock-jre8      | Apache License 2.0                                                 |
+|         com.jayway.jsonpath json-path          | Apache License 2.0                                                 |
+|       com.microsoft.sqlserver mssql-jdbc       | MIT                                                                |
+|     commons-fileupload commons-fileupload      | Apache License 2.0                                                 |
+|         com.mysql mysql-connector-java         | GNU General Public License v2.0                                    |
+|              com.opencsv opencsv               | Apache License 2.0                                                 |
+|        com.oracle.database.jdbc:ojdbc11        | Oracle Free Use Terms and Conditions                               |                                                           |
+|           javax.xml.parsers jaxp-api           | Apache License 2.0                                                 |
+|             net.sf.saxon Saxon-HE              | Mozilla Public License version 2.0                                 |
+|           org.apache.jena apache-arq           | Apache License 2.0                                                 |
+|          org.apache.jena apache-core           | Apache License 2.0                                                 |
+|          org.apache.jena fuseki-main           | Apache License 2.0                                                 |
+|            org.apache.poi poi-ooxml            | Apache License 2.0                                                 |
+|         org.eclipse.rdf4j rdf4j-client         | Eclipse Distribution License v1.0                                  |
+|                org.jsoup jsoup                 | MIT                                                                |
+|      org.junit.jupiter junit-jupiter-api       | Eclipse Public License v2.0                                        |
+|     org.junit.jupiter junit-jupiter-engine     | Eclipse Public License v2.0                                        |
+|     org.junit.jupiter junit-jupiter-params     | Eclipse Public License v2.0                                        |
+|     org.junit.vintage junit-vintage-engine     | Eclipse Public License v2.0                                        |
+|              org.mybatis mybatis               | Apache License 2.0                                                 |
+|           org.odftoolkit simple-odf            | Apache License 2.0                                                 |
+|           org.postgresql postgresql            | BSD                                                                |
+|            org.testcontainers jdbc             | MIT                                                                |
+|        org.testcontainers junit-jupiter        | MIT                                                                |
+|         org.testcontainers mssqlserver         | MIT                                                                |
+|            org.testcontainers mysql            | MIT                                                                |
+|          org.testcontainers oracle-xe          | MIT                                                                |
+|         org.testcontainers postgresql          | MIT                                                                |
+|               xerces xercesImpl                | Apache License 2.0                                                 |
 
 ## Commercial Support
 

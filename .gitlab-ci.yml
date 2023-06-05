@@ -1,4 +1,5 @@
 stages:
+  - lint
   - unittests
   - mirror
   - release
@@ -54,27 +55,26 @@ default:
 
 General:
   stage: unittests
-  image: maven:3.5.0-jdk-8
-  retry: 2
+  image: maven:3.8.6-openjdk-11
   services:
-    - postgres:10.4
-    - name: mcr.microsoft.com/mssql/server:latest
-      alias: sqlserver
+    - name: docker:19.03.12-dind
+      # explicitly disable tls to avoid docker startup interruption
+      command: ["--tls=false"]
+  variables:
+    # Instruct Testcontainers to use the daemon of DinD.
+    DOCKER_HOST: "tcp://docker:2375"
+    # Instruct Docker not to start over TLS.
+    DOCKER_TLS_CERTDIR: ""
+    # Improve performance with overlayfs.
+    DOCKER_DRIVER: overlay2
   script:
-    - 'mvn $MAVEN_CLI_OPTS -Dtest=!Mapper_OracleDB_Test test'
+    - 'mvn $MAVEN_CLI_OPTS -Dtest=$TEST test'
+  parallel:
+    matrix:
+      - TEST: [ArgumentsTest, MapperCSVTest, MapperJSONTest, MapperMySQLTest, MapperPostgresR2RMLTest, MapperWoTTest, ArgumentsTestMySQLTest, MapperCSVWTest, MapperLDESTest, MapperODSTest, MapperOracleDBTest, MapperPostgresXMLTest, MapperXMLTest, CustomRMLFnOMapperCSVTest, MapperEXCELTest, MapperMappingFileURLTest, MapperSPARQLTest, MetadataTest, CustomRMLFnOMapperJSONTest, MapperHTMLTest, MapperMySQLR2RMLTest, MapperPostgresCSVTest, MapperSQLServerTest, OptimizationsTest, R2RMLConverterTest, QuadTest, ReadmeTest, ReadmeFunctionTest]
   except:
     - master
     - development
-
-Oracle DB:
-  stage: unittests
-  image: gitlab.ilabt.imec.be:4567/rml/util/mvn-oracle-docker:latest
-  script:
-    - '/entrypoint.sh'
-  except:
-    - master
-    - development
-    - tags # Gitlab CI bot cannot access Docker images
 
 Docker Build:
   stage: unittests

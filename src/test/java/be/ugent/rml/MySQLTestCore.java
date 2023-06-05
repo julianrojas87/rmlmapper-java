@@ -1,56 +1,34 @@
 package be.ugent.rml;
 
-import ch.vorburger.exec.ManagedProcessException;
-import ch.vorburger.mariadb4j.DB;
-import ch.vorburger.mariadb4j.DBConfigurationBuilder;
+import org.testcontainers.containers.MySQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
 
-import java.io.File;
-import java.util.Iterator;
-
-
+@Testcontainers
 public abstract class MySQLTestCore extends DBTestCore {
 
-    protected static String CONNECTIONSTRING_TEMPLATE = "jdbc:mysql://localhost:%d/test";
+    // will be shared between test methods, i.e., one instance
+    @Container
+    protected static MySQLContainer<?> container;
 
-    protected static DB mysqlDB;
-
-    protected static String getConnectionString(int portNumber) {
-        return String.format(CONNECTIONSTRING_TEMPLATE, portNumber);
+    protected MySQLTestCore(String tag) {
+        super("root", "", tag);
+        container = new MySQLContainer<>(DockerImageName.parse(tag))
+                .withUsername(USERNAME)
+                .withPassword(PASSWORD)
+                .withEnv("allowPublicKeyRetrieval", "true")
+                .withEnv("useSSL", "false")
+                .withEnv("runID", Integer.toString(this.hashCode()))
+                .withConfigurationOverride("mysql_override");
     }
 
-    protected static DB setUpMySQLDBInstance(int portNumber) throws ManagedProcessException {
-        DBConfigurationBuilder configBuilder = DBConfigurationBuilder.newBuilder();
-        configBuilder.setPort(portNumber);
-        configBuilder.addArg("--user=root");
-        configBuilder.addArg("--sql-mode=STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION,ANSI_QUOTES");
-        DB mysqlDB = DB.newEmbeddedDB(configBuilder.build());
-        mysqlDB.start();
-
-        return mysqlDB;
+    protected MySQLTestCore() {
+        this("mysql:latest");
     }
 
-    protected static void stopDBs() throws ManagedProcessException {
-        if (mysqlDB != null) {
-            mysqlDB.stop();
-        }
-
-        // Make sure all tempFiles are removed
-        int counter = 0;
-        while (!tempFiles.isEmpty()) {
-            for (Iterator<String> i = tempFiles.iterator(); i.hasNext(); ) {
-                try {
-                    if (new File(i.next()).delete()) {
-                        i.remove();
-                    }
-                } catch (Exception ex) {
-                    counter++;
-                    ex.printStackTrace();
-                    // Prevent infinity loops
-                    if (counter > 100) {
-                        throw new Error("Could not remove all temp mapping files.");
-                    }
-                }
-            }
-        }
+    @Override
+    protected String getDbURL() {
+        return container.getJdbcUrl();
     }
 }

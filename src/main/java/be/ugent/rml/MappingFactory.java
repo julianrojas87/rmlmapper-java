@@ -1,5 +1,6 @@
 package be.ugent.rml;
 
+import be.ugent.idlab.knows.functions.agent.Agent;
 import be.ugent.rml.extractor.ConstantExtractor;
 import be.ugent.rml.extractor.HashExtractor;
 import be.ugent.rml.extractor.ReferenceExtractor;
@@ -25,7 +26,7 @@ import java.util.function.BiConsumer;
 import static be.ugent.rml.Utils.isValidrrLanguage;
 
 public class MappingFactory {
-    private final FunctionLoader functionLoader;
+    private final Agent functionAgent;
     private MappingInfo subjectMappingInfo;
     private List<MappingInfo> graphMappingInfos;
     private Term triplesMap;
@@ -34,10 +35,21 @@ public class MappingFactory {
     // This boolean is true when the double in a reference need to be ignored.
     // For example, when accessing data in a RDB.
     private boolean ignoreDoubleQuotes;
+
+    // Base IRI to prepend to a relative IRI to make it absolute.
+    private final String baseIRI;
+
+    // StrictMode determines RMLMapper's behaviour when an IRI for a NamedNode is invalid.
+    // If set to BEST_EFFORT, RMLMapper will not generate a NamedNode and go on.
+    // If set to STRICT, RMLMapper will stop execution with an exception.
+    private final StrictMode strictMode;
+
     protected Logger logger = LoggerFactory.getLogger(this.getClass());
 
-    public MappingFactory(FunctionLoader functionLoader) {
-        this.functionLoader = functionLoader;
+    public MappingFactory(final Agent functionAgent, final String baseIRI, final StrictMode strictMode) {
+        this.functionAgent = functionAgent;
+        this.baseIRI = baseIRI;
+        this.strictMode = strictMode;
     }
 
     public Mapping createMapping(Term triplesMap, QuadStore store) throws Exception {
@@ -89,7 +101,7 @@ public class MappingFactory {
                         }
                     } else {
                         //we are not dealing with a Blank Node, so we create the template
-                        generator = new NamedNodeGenerator(RecordFunctionExecutorFactory.generate(store, subjectmap, true, ignoreDoubleQuotes));
+                        generator = new NamedNodeGenerator(RecordFunctionExecutorFactory.generate(store, subjectmap, true, ignoreDoubleQuotes), baseIRI, strictMode);
                     }
                 } else {
                     SingleRecordFunctionExecutor functionExecutor = parseFunctionTermMap(functionValues.get(0));
@@ -97,7 +109,7 @@ public class MappingFactory {
                     if (isBlankNode) {
                         generator = new BlankNodeGenerator(functionExecutor);
                     } else {
-                        generator = new NamedNodeGenerator(functionExecutor);
+                        generator = new NamedNodeGenerator(functionExecutor, baseIRI, strictMode);
                     }
                 }
 
@@ -115,8 +127,8 @@ public class MappingFactory {
                      * Don't put in graph for rr:class, subject is already put in graph, otherwise double export.
                      * Same holds for targets, the rdf:type triple will be exported to the subject target already.
                      */
-                    NamedNodeGenerator predicateGenerator = new NamedNodeGenerator(new ConstantExtractor(NAMESPACES.RDF + "type"));
-                    NamedNodeGenerator objectGenerator = new NamedNodeGenerator(new ConstantExtractor(c.getValue()));
+                    NamedNodeGenerator predicateGenerator = new NamedNodeGenerator(new ConstantExtractor(NAMESPACES.RDF + "type"), baseIRI, strictMode);
+                    NamedNodeGenerator objectGenerator = new NamedNodeGenerator(new ConstantExtractor(c.getValue()), baseIRI, strictMode);
                     predicateObjectGraphMappings.add(new PredicateObjectGraphMapping(
                             new MappingInfo(subjectmap, predicateGenerator),
                             new MappingInfo(subjectmap, objectGenerator),
@@ -186,7 +198,7 @@ public class MappingFactory {
             if (o instanceof Literal) {
                 gen = new LiteralGenerator(fn);
             } else {
-                gen = new NamedNodeGenerator(fn);
+                gen = new NamedNodeGenerator(fn, baseIRI, strictMode);
             }
 
             // rr:object shortcut can never have targets
@@ -222,7 +234,7 @@ public class MappingFactory {
                         oGen = new LiteralGenerator(executor);
                     }
                 } else if (termType.equals(new NamedNode(NAMESPACES.RR + "IRI"))) {
-                    oGen = new NamedNodeGenerator(executor);
+                    oGen = new NamedNodeGenerator(executor, baseIRI, strictMode);
                 } else {
                     if (executor == null) {
                         // This will generate Blank Node with random identifiers.
@@ -243,7 +255,7 @@ public class MappingFactory {
                 objectMapCallback.accept(new MappingInfo(objectmap, oGen, oTargets), "child");
             } else if (!parentTriplesMaps.isEmpty()) {
                 if (parentTriplesMaps.size() > 1) {
-                    logger.warn(triplesMap + " has " + parentTriplesMaps.size() + " Parent Triples Maps. You can only have one. A random one is taken.");
+                    logger.warn("{} has {} Parent Triples Maps. You can only have one. A random one is taken.", triplesMap, parentTriplesMaps.size());
                 }
 
                 Term parentTriplesMap = parentTriplesMaps.get(0);
@@ -262,7 +274,6 @@ public class MappingFactory {
                     } else if (childs.isEmpty()) {
                         throw new Error("One of the join conditions of " + triplesMap + " is missing rr:child.");
                     } else {
-                        FunctionModel equal = functionLoader.getFunction(new NamedNode("http://example.com/idlab/function/equal"));
                         Map<String, Object[]> parameters = new HashMap<>();
 
                         boolean ignoreDoubleQuotesInParent = this.areDoubleQuotesIgnored(store, parentTriplesMap);
@@ -274,7 +285,7 @@ public class MappingFactory {
                         Object[] detailsChild = {"child", child};
                         parameters.put("http://users.ugent.be/~bjdmeest/function/grel.ttl#valueParameter2", detailsChild);
 
-                        joinConditionFunctionExecutors.add(new StaticMultipleRecordsFunctionExecutor(equal, parameters));
+                        joinConditionFunctionExecutors.add(new StaticMultipleRecordsFunctionExecutor(parameters, functionAgent, "http://example.com/idlab/function/equal"));
                     }
                 }
 
@@ -327,7 +338,7 @@ public class MappingFactory {
                     gen = new LiteralGenerator(functionExecutor);
                 }
             } else {
-                gen = new NamedNodeGenerator(functionExecutor);
+                gen = new NamedNodeGenerator(functionExecutor, baseIRI, strictMode);
             }
 
             // get targets for object map
@@ -361,7 +372,7 @@ public class MappingFactory {
                 SingleRecordFunctionExecutor executor = RecordFunctionExecutorFactory.generate(store, graphMap, true, ignoreDoubleQuotes);
 
                 if (termType == null || termType.equals(new NamedNode(NAMESPACES.RR + "IRI"))) {
-                    generator = new NamedNodeGenerator(executor);
+                    generator = new NamedNodeGenerator(executor, baseIRI, strictMode);
                 } else {
                     if (executor == null) {
                         generator = new BlankNodeGenerator();
@@ -373,7 +384,7 @@ public class MappingFactory {
                 SingleRecordFunctionExecutor functionExecutor = parseFunctionTermMap(functionValues.get(0));
 
                 if (termType == null || termType.equals(new NamedNode(NAMESPACES.RR + "IRI"))) {
-                    generator = new NamedNodeGenerator(functionExecutor);
+                    generator = new NamedNodeGenerator(functionExecutor, baseIRI, strictMode);
                 } else {
                     generator = new BlankNodeGenerator(functionExecutor);
                 }
@@ -390,7 +401,7 @@ public class MappingFactory {
         for (Term graph : graphShortcuts) {
             String gStr = graph.getValue();
             // rr:graph shortcut can never have targets
-            graphMappingInfos.add(new MappingInfo(termMap, new NamedNodeGenerator(new ConstantExtractor(gStr))));
+            graphMappingInfos.add(new MappingInfo(termMap, new NamedNodeGenerator(new ConstantExtractor(gStr), baseIRI, strictMode)));
         }
 
         return graphMappingInfos;
@@ -410,12 +421,12 @@ public class MappingFactory {
 
             if (functionValues.isEmpty()) {
                 predicateMappingInfos.add(new MappingInfo(predicateMap,
-                        new NamedNodeGenerator(RecordFunctionExecutorFactory.generate(store, predicateMap, false, ignoreDoubleQuotes)),
+                        new NamedNodeGenerator(RecordFunctionExecutorFactory.generate(store, predicateMap, false, ignoreDoubleQuotes), baseIRI, strictMode),
                         targets));
             } else {
                 SingleRecordFunctionExecutor functionExecutor = parseFunctionTermMap(functionValues.get(0));
 
-                predicateMappingInfos.add(new MappingInfo(predicateMap, new NamedNodeGenerator(functionExecutor), targets));
+                predicateMappingInfos.add(new MappingInfo(predicateMap, new NamedNodeGenerator(functionExecutor, baseIRI, strictMode), targets));
             }
         }
 
@@ -424,7 +435,7 @@ public class MappingFactory {
         for (Term predicate : predicateShortcuts) {
             String pStr = predicate.getValue();
             // rr:predicate shortcut can never have targets
-            predicateMappingInfos.add(new MappingInfo(termMap, new NamedNodeGenerator(new ConstantExtractor(pStr))));
+            predicateMappingInfos.add(new MappingInfo(termMap, new NamedNodeGenerator(new ConstantExtractor(pStr), baseIRI, strictMode)));
         }
 
         return predicateMappingInfos;
@@ -451,7 +462,7 @@ public class MappingFactory {
             params.add(new ParameterValuePair(pGenerators, oGenerators));
         }
 
-        return new DynamicSingleRecordFunctionExecutor(params, functionLoader);
+        return new DynamicSingleRecordFunctionExecutor(params, functionAgent);
     }
 
     private MultipleRecordsFunctionExecutor parseJoinConditionFunctionTermMap(Term functionValue) throws IOException {
@@ -474,7 +485,7 @@ public class MappingFactory {
             params.add(new ParameterValueOriginPair(pGenerators, objectGeneratorOriginPairs));
         }
 
-        return new DynamicMultipleRecordsFunctionExecutor(params, functionLoader);
+        return new DynamicMultipleRecordsFunctionExecutor(params, functionAgent);
     }
 
     /**
@@ -483,7 +494,6 @@ public class MappingFactory {
      * @throws IOException
      */
     private MultipleRecordsFunctionExecutor generateSameLogicalSourceJoinConditionFunctionTermMap() throws IOException {
-        FunctionModel equal = functionLoader.getFunction(new NamedNode("http://example.com/idlab/function/equal"));
         Map<String, Object[]> parameters = new HashMap<>();
 
         SingleRecordFunctionExecutor parent = new HashExtractor();
@@ -494,7 +504,7 @@ public class MappingFactory {
         Object[] detailsChild = {"child", child};
         parameters.put("http://users.ugent.be/~bjdmeest/function/grel.ttl#valueParameter2", detailsChild);
 
-        return new StaticMultipleRecordsFunctionExecutor(equal, parameters);
+        return new StaticMultipleRecordsFunctionExecutor(parameters, functionAgent, "http://example.com/idlab/function/equal");
     }
 
     private List<MappingInfo> parseObjectMapsAndShortcuts(Term pom) throws IOException {

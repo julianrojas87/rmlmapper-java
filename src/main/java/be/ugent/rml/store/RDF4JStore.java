@@ -8,7 +8,9 @@ import org.eclipse.rdf4j.model.*;
 import org.eclipse.rdf4j.model.impl.SimpleValueFactory;
 import org.eclipse.rdf4j.model.impl.TreeModel;
 import org.eclipse.rdf4j.model.util.Models;
-import org.eclipse.rdf4j.rio.*;
+import org.eclipse.rdf4j.rio.RDFFormat;
+import org.eclipse.rdf4j.rio.RDFParser;
+import org.eclipse.rdf4j.rio.Rio;
 import org.eclipse.rdf4j.rio.helpers.BasicParserSettings;
 import org.eclipse.rdf4j.rio.helpers.StatementCollector;
 import org.slf4j.Logger;
@@ -19,7 +21,6 @@ import java.io.Writer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -112,11 +113,14 @@ public class RDF4JStore extends QuadStore {
            base = "";
         }
 
-        RDFParser parser = Rio.createParser(format);
-        parser.set(BasicParserSettings.PRESERVE_BNODE_IDS, true);
-        parser.setRDFHandler(new StatementCollector(model));
-        parser.parse(is, base);
-        is.close();
+        try {
+            RDFParser parser = Rio.createParser(format);
+            parser.set(BasicParserSettings.PRESERVE_BNODE_IDS, true);
+            parser.setRDFHandler(new StatementCollector(model));
+            parser.parse(is, base);
+        } finally {
+            is.close();
+        }
     }
 
     @Override
@@ -296,9 +300,9 @@ public class RDF4JStore extends QuadStore {
             boolean hasLanguage = str.contains("@") && str.lastIndexOf("@") > str.lastIndexOf("\"");
             boolean hasDatatype = str.contains("^^");
             if (hasLanguage) {
-                pattern = Pattern.compile("^\"([^\"]*)\"@([^@]*)");
+                pattern = Pattern.compile("^\"(.*)\"@([^@]*)", Pattern.DOTALL);
             } else if (hasDatatype) {
-                pattern = Pattern.compile("^\"([^\"]*)\"\\^\\^<([^>]*)>");
+                pattern = Pattern.compile("^\"(.*)\"\\^\\^<([^>]*)>", Pattern.DOTALL);
             } else {
                 pattern = Pattern.compile("^\"(.*)\"$", Pattern.DOTALL);
             }
